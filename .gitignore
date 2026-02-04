@@ -1,0 +1,11 @@
+# Arquivos de backup
+*.sql.gz
+*.tar.gz
+backup_*
+
+# Logs
+*.log
+
+# Arquivos temporários
+*.tmp
+.DS_Store
