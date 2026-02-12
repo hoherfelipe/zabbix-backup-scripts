@@ -8,10 +8,10 @@
 # ========================================
 
 # Configurações do Container Docker
-DOCKER_CONTAINER="zabbix-data-mysql-server-1"               # Nome do container MySQL/MariaDB
-MYSQL_USER="USUARIO"                                        # Usuário do banco
-MYSQL_PASS="SENHA"                                          # Senha do banco
-MYSQL_DB="NOME_DO_BANCO"                                    # Nome do banco
+DOCKER_CONTAINER="NOME DO CONTAINER CLIENTE MYSQL"          # Nome do container MySQL/MariaDB
+MYSQL_USER="USER"                                           # Usuário do banco
+MYSQL_PASS='SENHA_MYSQL'                                    # Senha do banco
+MYSQL_DB="NOME_DB"                                          # Nome do banco
 
 # Configurações de Scripts Externos
 EXTERNALSCRIPTS_PATH="/docker/zabbix-data/externalscripts"  # Caminho para externalscripts
@@ -27,8 +27,8 @@ LOG_FILE="/var/log/backup_zabbix_docker.log"
 SFTP_ENABLED=true                                           # true para ativar, false para desativar
 SFTP_HOST="IP_FTP"
 SFTP_PORT="PORTA_FTP"
-SFTP_USER="USUARIO_FTP"
-SFTP_PASS="SENHA_FTP"
+SFTP_USER="USER_FTP"
+SFTP_PASS='SENHA_FTP'                                       # SENHA USUÁRIO FTP
 SFTP_DIR="/opt/bkp_zabbix"
 SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
 
@@ -76,6 +76,7 @@ docker exec ${DOCKER_CONTAINER} mysqldump -u${MYSQL_USER} -p${MYSQL_PASS} \
     --single-transaction \
     --quick \
     --lock-tables=false \
+    --no-tablespaces \
     --ignore-table=${MYSQL_DB}.history \
     --ignore-table=${MYSQL_DB}.history_uint \
     --ignore-table=${MYSQL_DB}.history_str \
@@ -92,6 +93,28 @@ fi
 
 log "Backup de configurações concluído"
 
+# Aguardar MySQL ficar pronto (importante após reinicializações)
+log "Verificando disponibilidade do MySQL..."
+MAX_ATTEMPTS=15
+ATTEMPT=0
+
+while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+    if docker exec ${DOCKER_CONTAINER} mysqladmin ping -u${MYSQL_USER} -p${MYSQL_PASS} &> /dev/null; then
+        log "✓ MySQL disponível e respondendo"
+        break
+    fi
+    ATTEMPT=$((ATTEMPT + 1))
+    if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+        log "Aguardando MySQL... tentativa ${ATTEMPT}/${MAX_ATTEMPTS}"
+        sleep 2
+    fi
+done
+
+if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+    log "ERRO: MySQL não ficou disponível após ${MAX_ATTEMPTS} tentativas (60 segundos)!"
+    exit 1
+fi
+
 # Backup das trends dos últimos 15 dias
 log "Fazendo backup das trends (últimos 15 dias)..."
 docker exec ${DOCKER_CONTAINER} mysql -u${MYSQL_USER} -p${MYSQL_PASS} ${MYSQL_DB} -N -e \
@@ -104,6 +127,7 @@ docker exec ${DOCKER_CONTAINER} bash -c "mysqldump -u${MYSQL_USER} -p${MYSQL_PAS
     --single-transaction \
     --quick \
     --lock-tables=false \
+    --no-tablespaces \
     ${MYSQL_DB} trends trends_uint \
     --where=\"clock >= ${CUTOFF_TIMESTAMP}\"" > ${BACKUP_TRENDS} 2>> ${LOG_FILE}
 
@@ -134,7 +158,7 @@ fi
 
 if [ -n "${SCRIPTS_TO_BACKUP}" ]; then
     tar -czf ${BACKUP_SCRIPTS} ${SCRIPTS_TO_BACKUP} 2>> ${LOG_FILE}
-    
+
     if [ $? -eq 0 ]; then
         SCRIPTS_SIZE=$(du -h ${BACKUP_SCRIPTS} | cut -f1)
         log "  ✓ Backup de scripts concluído: ${SCRIPTS_SIZE}"
@@ -186,7 +210,7 @@ log "=== Backup local concluído com sucesso ==="
 # Upload SFTP (se habilitado)
 if [ "$SFTP_ENABLED" = true ]; then
     log "=== Iniciando envio para servidor SFTP ==="
-    
+
     # Verificar se sshpass está instalado
     if ! command -v sshpass &> /dev/null; then
         log "AVISO: sshpass não está instalado! Backup não será enviado para SFTP"
@@ -200,37 +224,37 @@ put ${BACKUP_FINAL}
 ls -lh backup_${DATE}.tar.gz
 bye
 EOFBATCH
-        
+
         # Enviar via SFTP
         log "Enviando ${BACKUP_FINAL} para ${SFTP_HOST}:${SFTP_DIR}..."
-        sshpass -p "${SFTP_PASS}" sftp -P ${SFTP_PORT} -oBatchMode=no -b ${SFTP_BATCH} ${SFTP_USER}@${SFTP_HOST} >> ${LOG_FILE} 2>&1
-        
+        sshpass -p "${SFTP_PASS}" sftp -P ${SFTP_PORT} -o StrictHostKeyChecking=no -oBatchMode=no -b ${SFTP_BATCH} ${SFTP_USER}@${SFTP_HOST} >> ${LOG_FILE} 2>&1
+
         if [ $? -eq 0 ]; then
             log "✓ Backup enviado com sucesso para SFTP: ${SFTP_HOST}"
-            
+
             # Limpar backups antigos no SFTP
             log "Limpando backups remotos com mais de ${SFTP_RETENTION_DAYS} dias..."
-            
-            sshpass -p "${SFTP_PASS}" ssh -p ${SFTP_PORT} ${SFTP_USER}@${SFTP_HOST} << EOFSSH >> ${LOG_FILE} 2>&1
+
+            sshpass -p "${SFTP_PASS}" ssh -p ${SFTP_PORT} -o StrictHostKeyChecking=no ${SFTP_USER}@${SFTP_HOST} << EOFSSH >> ${LOG_FILE} 2>&1
 cd ${SFTP_DIR}
 find . -name "backup_*.tar.gz" -mtime +${SFTP_RETENTION_DAYS} -delete
 echo "Backups antigos removidos"
 EOFSSH
-            
+
             if [ $? -eq 0 ]; then
                 log "✓ Limpeza de backups remotos concluída"
             else
                 log "⚠ Não foi possível limpar backups remotos antigos"
             fi
-            
+
         else
             log "✗ ERRO: Falha ao enviar backup para SFTP!"
         fi
-        
+
         # Limpar arquivo temporário
         rm -f ${SFTP_BATCH}
     fi
-    
+
     log "=== Envio para SFTP concluído ==="
 fi
 
