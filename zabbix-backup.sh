@@ -86,6 +86,7 @@ mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
     --single-transaction \
     --quick \
     --lock-tables=false \
+    --no-tablespaces \
     ${MYSQL_DB} trends trends_uint \
     --where="clock >= ${CUTOFF_TIMESTAMP}" > ${BACKUP_TRENDS} 2>> ${LOG_FILE}
 
