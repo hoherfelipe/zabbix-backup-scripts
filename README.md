@@ -326,7 +326,7 @@ FLUSH PRIVILEGES;
 **Erro: "Permission denied" no SFTP**
 ```bash
 # 1. Verificar credenciais
-sftp -P 4721 usuario@servidor_ftp
+sftp -P [PORTA] usuario@servidor_ftp
 # Digite a senha quando solicitado
 
 # 2. Verificar se diretório existe no servidor FTP
