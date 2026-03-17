@@ -8,29 +8,29 @@
 # ========================================
 
 # Configurações do Container Docker
-DOCKER_CONTAINER="fn-mysql-server"                          # Nome do container MySQL/MariaDB
-MYSQL_USER="zabbix"                                         # Usuário do banco
-MYSQL_PASS='zabbix'                                         # Senha do banco
-MYSQL_DB="zabbix"                                           # Nome do banco
+DOCKER_CONTAINER="NOME_CONTAINER_AQUI"                          # Nome do container MySQL/MariaDB
+MYSQL_USER="zabbix"                                             # Usuário do banco
+MYSQL_PASS='SENHA_AQUI'                                         # Senha do banco
+MYSQL_DB="zabbix"                                               # Nome do banco
 
 # Caminhos dos scripts (no host, não no container)
 EXTERNALSCRIPTS_PATH="/docker/zabbix-data/externalscripts"  # Caminho para externalscripts
 ALERTSCRIPTS_PATH="/docker/zabbix-data/alertscripts"        # Caminho para alertscripts
 
 # Configurações de Backup Local
-BACKUP_DIR="/opt/backup/zabbix"                             # Diretório local para backups
-RETENTION_COUNT_LOCAL=2                                     # Manter apenas os 2 últimos backups locais
-TRENDS_RETENTION_DAYS=15                                    # Backup apenas trends dos últimos 15 dias
-LOG_FILE="/var/log/backup_zabbix_docker.log"
+BACKUP_DIR="/opt/backup/zabbix"                              # Diretório local para backups
+RETENTION_COUNT_LOCAL=2                                      # Manter apenas os 2 últimos backups locais
+TRENDS_RETENTION_DAYS=15                                     # Backup apenas trends dos últimos 15 dias
+LOG_FILE="/var/log/backup_zabbix.log"
 
-# Configurações SFTP/FTP (opcional - deixe SFTP_ENABLED=false para desabilitar)
-SFTP_ENABLED=true                                           # true para ativar, false para desativar
-SFTP_HOST="192.168.172.54"
-SFTP_PORT="4721"
-SFTP_USER="bkpzbx"
-SFTP_PASS='M003|CE1BVq_h4f:'                               # SENHA USUÁRIO FTP
+# Configurações SFTP/FTP
+SFTP_ENABLED=true                                               # true para ativar, false para desativar
+SFTP_HOST="IP_AQUI"
+SFTP_PORT="PORTA_AQUI"
+SFTP_USER="USER_AQUI"
+SFTP_PASS="SENHA_AQUI"
 SFTP_DIR="/opt/bkp_zabbix"
-SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
+SFTP_RETENTION_DAYS=5                                           # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
 STATUS_FILE="/var/log/zabbix_backup_status.json"

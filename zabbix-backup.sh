@@ -8,13 +8,13 @@
 # ========================================
 
 # Configurações do MySQL/MariaDB
-MYSQL_USER="zabbix"                                          # Usuário do banco
-MYSQL_PASS='4HaGo!r16icldOtaPrev'                                   # Senha do banco
-MYSQL_DB="zabbix"                                            # Nome do banco
+MYSQL_USER="zabbix"                                             # Usuário do banco
+MYSQL_PASS='SENHA_AQUI'                                         # Senha do banco
+MYSQL_DB="zabbix"                                               # Nome do banco
 
 # Configurações de Scripts Externos
-EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts/"       # Caminho para externalscripts
-ALERTSCRIPTS_PATH="/usr/lib/zabbix/alertscripts"             # Caminho para alertscripts
+EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts/"         # Caminho para externalscripts
+ALERTSCRIPTS_PATH="/usr/lib/zabbix/alertscripts"                # Caminho para alertscripts
 
 # Configurações de Backup Local
 BACKUP_DIR="/opt/backup/zabbix"                              # Diretório local para backups
@@ -23,13 +23,13 @@ TRENDS_RETENTION_DAYS=15                                     # Backup apenas tre
 LOG_FILE="/var/log/backup_zabbix.log"
 
 # Configurações SFTP/FTP
-SFTP_ENABLED=true                                           # true para ativar, false para desativar
-SFTP_HOST="10.220.220.3"
-SFTP_PORT="4721"
-SFTP_USER="bkpzbx"
-SFTP_PASS="M003|CE1BVq_h4f:"
+SFTP_ENABLED=true                                               # true para ativar, false para desativar
+SFTP_HOST="IP_AQUI"
+SFTP_PORT="PORTA_AQUI"
+SFTP_USER="USER_AQUI"
+SFTP_PASS="SENHA_AQUI"
 SFTP_DIR="/opt/bkp_zabbix"
-SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
+SFTP_RETENTION_DAYS=5                                           # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
 STATUS_FILE="/var/log/zabbix_backup_status.json"

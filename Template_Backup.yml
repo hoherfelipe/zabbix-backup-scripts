@@ -11,7 +11,8 @@ zabbix_export:
       description: |
         Monitora o status do backup diário do Zabbix.
         Coleta o arquivo /var/log/zabbix_backup_status.json via Zabbix Agent.
-        Desenvolvido por FB Consultoria - Horus Monitoring Platform.
+        Desenvolvido por Felipe Höher
+        FB Consultoria - Horus Monitoring Platform.
       groups:
         - name: Templates/FB Consultoria
 
