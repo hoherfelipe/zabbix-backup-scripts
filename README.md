@@ -271,6 +271,104 @@ Exemplo de log:
 [2026-02-03 15:10:41] Tamanho do backup final: 6.8M
 [2026-02-03 15:10:41] [OK] Backup enviado com sucesso para SFTP
 ```
+
+### Arquivo de status JSON
+
+Além do log textual, cada execução atualiza o arquivo `/var/log/zabbix_backup_status.json` com o resultado mais recente:
+
+```json
+{
+  "status": "OK",
+  "timestamp": "2026-02-03 15:10:41",
+  "message": "Backup concluído com sucesso"
+}
+```
+
+Em caso de falha, o campo `status` passa para `"ERRO"` e `message` indica a etapa onde ocorreu:
+
+```json
+{
+  "status": "ERRO",
+  "timestamp": "2026-02-03 02:05:12",
+  "message": "Falha no mysqldump - backup de configurações"
+}
+```
+
+Este arquivo é o ponto de integração com o Zabbix Agent2 — veja a seção [Monitoramento via Zabbix](#-monitoramento-via-zabbix) abaixo.
+
+---
+
+## 📡 Monitoramento via Zabbix
+
+Os scripts integram-se ao Zabbix para monitoramento automático do status de backup. A solução é composta por três partes: o arquivo de status JSON gerado pelo script, a coleta via Zabbix Agent2 e o template com itens e triggers.
+
+### 1. Arquivo de status
+
+O script grava `/var/log/zabbix_backup_status.json` ao final de cada execução (sucesso ou erro). Este arquivo é sempre sobrescrito com o resultado mais recente e tem permissão `644` para leitura pelo agente.
+
+### 2. Configuração do Zabbix Agent2
+
+Adicione o UserParameter ao arquivo de configuração do agente no servidor Zabbix monitorado:
+
+```bash
+# Editar o arquivo de configuração do agente
+vim /etc/zabbix/zabbix_agent2.d/backup_status.conf
+```
+
+Conteúdo do arquivo:
+```
+UserParameter=backup.status,cat /var/log/zabbix_backup_status.json
+```
+
+Reiniciar o agente após a alteração:
+```bash
+# Debian/Ubuntu
+systemctl restart zabbix-agent2
+
+# CentOS/RHEL
+systemctl restart zabbix-agent2
+```
+
+Verificar se o item está respondendo:
+```bash
+# Testar localmente
+zabbix_agent2 -t backup.status
+
+# Testar do servidor Zabbix
+zabbix_get -s <IP_DO_HOST> -p 10050 -k backup.status
+```
+
+### 3. Template Zabbix
+
+O arquivo `Template_Backup.yml` contém o template pronto para importação no Zabbix 7.2+.
+
+#### Importação
+
+1. Acesse **Configuration → Templates → Import**
+2. Selecione o arquivo `Template_Backup.yml`
+3. Confirme a importação
+4. Vincule o template ao host monitorado em **Configuration → Hosts → [host] → Templates**
+
+#### Itens coletados
+
+| Item | Chave | Tipo | Descrição |
+|------|-------|------|-----------|
+| Backup Zabbix - Status JSON | `backup.status` | Zabbix Agent (Ativo) | JSON completo — item master |
+| Backup Zabbix - Status | `backup.status.result` | Dependente | `OK` ou `ERRO` |
+| Backup Zabbix - Timestamp | `backup.status.timestamp` | Dependente | Data/hora da última execução |
+| Backup Zabbix - Timestamp Unix | `backup.status.timestamp.unix` | Dependente | Timestamp Unix — base para cálculo de atraso |
+| Backup Zabbix - Mensagem | `backup.status.message` | Dependente | Mensagem detalhada do resultado |
+
+Os itens dependentes extraem os campos do JSON via JSONPath. O `backup.status` é coletado a cada **5 minutos** e tem retenção de **7 dias**; os dependentes retêm dados por **30 dias**.
+
+#### Triggers configuradas
+
+| Trigger | Severidade | Condição |
+|---------|-----------|----------|
+| Backup Zabbix com ERRO em `{HOST.NAME}` | Alta | `status != "OK"` |
+| Backup Zabbix não executado há mais de 26h em `{HOST.NAME}` | Alta | Tempo decorrido desde o último backup > 93600 segundos |
+
+A trigger de atraso compara o timestamp Unix do último backup com o horário atual (`now()`), acionando alerta se o backup não tiver sido executado no intervalo esperado (cron às 02:00 com tolerância de 2 horas).
 ## 🔧 Troubleshooting
 
 ### Problemas Comuns - Docker
@@ -456,4 +554,4 @@ MIT License - Sinta-se livre para usar e modificar conforme necessário.
 ---
 
 **Desenvolvido por**: Felipe Hoher  
-**Última atualização**: Fevereiro 2026
+**Última atualização**: Março 2026
