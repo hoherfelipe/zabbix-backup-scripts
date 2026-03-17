@@ -330,10 +330,10 @@ sftp -P [PORTA] usuario@servidor_ftp
 # Digite a senha quando solicitado
 
 # 2. Verificar se diretório existe no servidor FTP
-ssh -p 4721 usuario@servidor_ftp "ls -ld /opt/bkp_zabbix"
+ssh -p [PORTA] usuario@servidor_ftp "ls -ld /opt/bkp_zabbix"
 
 # 3. Criar diretório se não existir
-ssh -p 4721 usuario@servidor_ftp "mkdir -p /opt/bkp_zabbix && chmod 755 /opt/bkp_zabbix"
+ssh -p [PORTA] usuario@servidor_ftp "mkdir -p /opt/bkp_zabbix && chmod 755 /opt/bkp_zabbix"
 
 # 4. Senhas com caracteres especiais - usar aspas simples
 # ✅ CORRETO:   SFTP_PASS='M003|CE1BVq_h4f:'
@@ -402,7 +402,7 @@ tail -100 /var/log/backup_zabbix*.log
 
 # 5. Testar envio FTP (se habilitado)
 # Verificar se arquivo chegou no servidor remoto
-ssh -p 4721 usuario@servidor_ftp "ls -lh /opt/bkp_zabbix/"
+ssh -p [PORTA] usuario@servidor_ftp "ls -lh /opt/bkp_zabbix/"
 ```
 
 ## ⚠️ Considerações Importantes
