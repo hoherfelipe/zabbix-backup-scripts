@@ -8,28 +8,31 @@
 # ========================================
 
 # Configurações do MySQL/MariaDB
-MYSQL_USER="USER"                                   # Usuário do banco
-MYSQL_PASS='SENHA_MYSQL'                            # Senha do banco
-MYSQL_DB="NOME_DB"                                  # Nome do banco
+MYSQL_USER="zabbix"                                          # Usuário do banco
+MYSQL_PASS='4HaGo!r16icldOtaPrev'                                   # Senha do banco
+MYSQL_DB="zabbix"                                            # Nome do banco
 
 # Configurações de Scripts Externos
-EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts"       # Caminho para externalscripts
+EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts/"       # Caminho para externalscripts
 ALERTSCRIPTS_PATH="/usr/lib/zabbix/alertscripts"             # Caminho para alertscripts
 
 # Configurações de Backup Local
-BACKUP_DIR="/opt/backup/zabbix"                             # Diretório local para backups
-RETENTION_COUNT_LOCAL=2                                     # Manter apenas os 2 últimos backups locais
-TRENDS_RETENTION_DAYS=15                                    # Backup apenas trends dos últimos 15 dias
+BACKUP_DIR="/opt/backup/zabbix"                              # Diretório local para backups
+RETENTION_COUNT_LOCAL=2                                      # Manter apenas os 2 últimos backups locais
+TRENDS_RETENTION_DAYS=15                                     # Backup apenas trends dos últimos 15 dias
 LOG_FILE="/var/log/backup_zabbix.log"
 
 # Configurações SFTP/FTP
 SFTP_ENABLED=true                                           # true para ativar, false para desativar
-SFTP_HOST="IP_FTP"
-SFTP_PORT="PORTA_FTP"
-SFTP_USER="USER_FTP"
-SFTP_PASS='SENHA_FTP'                                       # SENHA USUÁRIO FTP
+SFTP_HOST="10.220.220.3"
+SFTP_PORT="4721"
+SFTP_USER="bkpzbx"
+SFTP_PASS="M003|CE1BVq_h4f:"
 SFTP_DIR="/opt/bkp_zabbix"
 SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
+
+# Arquivo de status para monitoramento Zabbix
+STATUS_FILE="/var/log/zabbix_backup_status.json"
 
 # ========================================
 # NÃO ALTERAR DAQUI PRA BAIXO
@@ -42,8 +45,34 @@ BACKUP_SCRIPTS="${BACKUP_DIR}/backup_scripts_${DATE}.tar.gz"
 
 mkdir -p ${BACKUP_DIR}
 
+# Função de log
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a ${LOG_FILE}
+}
+
+# Função para gravar status JSON (sobrescreve sempre)
+write_status() {
+    local status="$1"
+    local message="$2"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    cat > "${STATUS_FILE}" << EOF
+{
+  "status": "${status}",
+  "timestamp": "${timestamp}",
+  "message": "${message}"
+}
+EOF
+    chmod 644 "${STATUS_FILE}"
+}
+
+# Função para encerrar com erro
+die() {
+    local message="$1"
+    log "ERRO: ${message}"
+    write_status "ERRO" "${message}"
+    exit 1
 }
 
 log "=== Iniciando backup otimizado do Zabbix Local ==="
@@ -64,12 +93,11 @@ mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
     --ignore-table=${MYSQL_DB}.history_log \
     --ignore-table=${MYSQL_DB}.trends \
     --ignore-table=${MYSQL_DB}.trends_uint \
+    --ignore-table=${MYSQL_DB}.auditlog \
     ${MYSQL_DB} > ${BACKUP_CONFIG} 2>> ${LOG_FILE}
 
 if [ $? -ne 0 ]; then
-    log "ERRO: Falha ao fazer backup das configurações!"
-    log "Verifique o arquivo de log: ${LOG_FILE}"
-    exit 1
+    die "Falha no mysqldump - backup de configurações"
 fi
 
 log "Backup de configurações concluído"
@@ -91,8 +119,7 @@ mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
     --where="clock >= ${CUTOFF_TIMESTAMP}" > ${BACKUP_TRENDS} 2>> ${LOG_FILE}
 
 if [ $? -ne 0 ]; then
-    log "ERRO: Falha ao fazer backup das trends!"
-    exit 1
+    die "Falha no mysqldump - backup de trends"
 fi
 
 log "Backup de trends concluído"
@@ -117,7 +144,7 @@ fi
 
 if [ -n "${SCRIPTS_TO_BACKUP}" ]; then
     tar -czf ${BACKUP_SCRIPTS} ${SCRIPTS_TO_BACKUP} 2>> ${LOG_FILE}
-    
+
     if [ $? -eq 0 ]; then
         SCRIPTS_SIZE=$(du -h ${BACKUP_SCRIPTS} | cut -f1)
         log "  ✓ Backup de scripts concluído: ${SCRIPTS_SIZE}"
@@ -129,12 +156,16 @@ else
     rm -f ${BACKUP_SCRIPTS}
 fi
 
-# Compactar
+# Compactar dumps SQL
 log "Compactando backups SQL..."
 gzip ${BACKUP_CONFIG}
 gzip ${BACKUP_TRENDS}
 
-# Combinar
+if [ $? -ne 0 ]; then
+    die "Falha ao compactar arquivos SQL"
+fi
+
+# Combinar em arquivo único
 log "Combinando arquivos..."
 BACKUP_FINAL="${BACKUP_DIR}/backup_${DATE}.tar.gz"
 
@@ -144,6 +175,11 @@ tar -czf ${BACKUP_FINAL} \
     $([ -f ${BACKUP_SCRIPTS} ] && echo "-C ${BACKUP_DIR} backup_scripts_${DATE}.tar.gz") \
     2>> ${LOG_FILE}
 
+if [ $? -ne 0 ]; then
+    die "Falha ao combinar arquivos no tar final"
+fi
+
+# Limpar arquivos temporários
 rm -f ${BACKUP_CONFIG}.gz ${BACKUP_TRENDS}.gz ${BACKUP_SCRIPTS}
 
 SIZE=$(du -h ${BACKUP_FINAL} | cut -f1)
@@ -167,47 +203,49 @@ log "=== Backup local concluído com sucesso ==="
 # Upload SFTP
 if [ "$SFTP_ENABLED" = true ]; then
     log "=== Iniciando envio para servidor SFTP ==="
-    
+
     if ! command -v sshpass &> /dev/null; then
-        log "AVISO: sshpass não está instalado! Backup não será enviado para SFTP"
-    else
-        SFTP_BATCH="/tmp/sftp_upload_$$.txt"
-        cat > ${SFTP_BATCH} << EOFBATCH
+        die "sshpass não está instalado - backup não enviado para SFTP"
+    fi
+
+    SFTP_BATCH="/tmp/sftp_upload_$$.txt"
+    cat > ${SFTP_BATCH} << EOFBATCH
 cd ${SFTP_DIR}
 put ${BACKUP_FINAL}
 ls -lh backup_${DATE}.tar.gz
 bye
 EOFBATCH
-        
-        log "Enviando ${BACKUP_FINAL} para ${SFTP_HOST}:${SFTP_DIR}..."
-        sshpass -p "${SFTP_PASS}" sftp -P ${SFTP_PORT} -o StrictHostKeyChecking=no -oBatchMode=no -b ${SFTP_BATCH} ${SFTP_USER}@${SFTP_HOST} >> ${LOG_FILE} 2>&1
-        
-        if [ $? -eq 0 ]; then
-            log "✓ Backup enviado com sucesso para SFTP: ${SFTP_HOST}"
-            
-            log "Limpando backups remotos com mais de ${SFTP_RETENTION_DAYS} dias..."
-            
-            sshpass -p "${SFTP_PASS}" ssh -p ${SFTP_PORT} -o StrictHostKeyChecking=no ${SFTP_USER}@${SFTP_HOST} << EOFSSH >> ${LOG_FILE} 2>&1
+
+    log "Enviando ${BACKUP_FINAL} para ${SFTP_HOST}:${SFTP_DIR}..."
+    sshpass -p "${SFTP_PASS}" sftp -P ${SFTP_PORT} -o StrictHostKeyChecking=no -oBatchMode=no -b ${SFTP_BATCH} ${SFTP_USER}@${SFTP_HOST} >> ${LOG_FILE} 2>&1
+
+    if [ $? -ne 0 ]; then
+        rm -f ${SFTP_BATCH}
+        die "Falha ao enviar backup para SFTP - ${SFTP_HOST}"
+    fi
+
+    log "✓ Backup enviado com sucesso para SFTP: ${SFTP_HOST}"
+
+    # Limpar backups antigos no SFTP
+    log "Limpando backups remotos com mais de ${SFTP_RETENTION_DAYS} dias..."
+    sshpass -p "${SFTP_PASS}" ssh -p ${SFTP_PORT} -o StrictHostKeyChecking=no ${SFTP_USER}@${SFTP_HOST} << EOFSSH >> ${LOG_FILE} 2>&1
 cd ${SFTP_DIR}
 find . -name "backup_*.tar.gz" -mtime +${SFTP_RETENTION_DAYS} -delete
 echo "Backups antigos removidos"
 EOFSSH
-            
-            if [ $? -eq 0 ]; then
-                log "✓ Limpeza de backups remotos concluída"
-            else
-                log "⚠ Não foi possível limpar backups remotos antigos"
-            fi
-            
-        else
-            log "✗ ERRO: Falha ao enviar backup para SFTP!"
-        fi
-        
-        rm -f ${SFTP_BATCH}
+
+    if [ $? -eq 0 ]; then
+        log "✓ Limpeza de backups remotos concluída"
+    else
+        log "⚠ Não foi possível limpar backups remotos antigos"
     fi
-    
+
+    rm -f ${SFTP_BATCH}
     log "=== Envio para SFTP concluído ==="
 fi
+
+# Gravar status de sucesso
+write_status "OK" "Backup concluído com sucesso"
 
 log "=== Processo completo finalizado ==="
 

@@ -1,0 +1,147 @@
+zabbix_export:
+  version: '7.2'
+  template_groups:
+    - uuid: 9d41f85c2b504413bc914aa40126d53d
+      name: Templates/FB Consultoria
+
+  templates:
+    - uuid: 29ff30b632e94c149c74386c40333668
+      template: 'Template Backup Zabbix Status'
+      name: 'Template Backup Zabbix Status'
+      description: |
+        Monitora o status do backup diário do Zabbix.
+        Coleta o arquivo /var/log/zabbix_backup_status.json via Zabbix Agent.
+        Desenvolvido por FB Consultoria - Horus Monitoring Platform.
+      groups:
+        - name: Templates/FB Consultoria
+
+      items:
+        - uuid: 5c6d79bae8c045829096d6f7e9f46cea
+          name: 'Backup Zabbix - Status JSON'
+          type: ZABBIX_ACTIVE
+          key: backup.status
+          delay: 5m
+          history: 7d
+          trends: '0'
+          value_type: TEXT
+          description: |
+            Item master. Coleta o JSON completo do arquivo
+            /var/log/zabbix_backup_status.json via UserParameter.
+          tags:
+            - tag: component
+              value: backup
+
+        - uuid: 342246738b9d457f9a51b91dd2bc210e
+          name: 'Backup Zabbix - Status'
+          type: DEPENDENT
+          key: backup.status.result
+          delay: '0'
+          history: 30d
+          trends: '0'
+          value_type: TEXT
+          description: 'Status do ultimo backup: OK ou ERRO'
+          master_item:
+            key: backup.status
+          tags:
+            - tag: component
+              value: backup
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.status'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          triggers:
+            - uuid: 18de6d6c2cd149c3b3256de0b2773c9b
+              expression: 'last(/Template Backup Zabbix Status/backup.status.result)<>"OK"'
+              name: 'Backup Zabbix com ERRO em {HOST.NAME}'
+              event_name: 'Backup Zabbix com ERRO em {HOST.NAME}: {?last(/Template Backup Zabbix Status/backup.status.message)}'
+              priority: HIGH
+              description: |
+                O ultimo backup do Zabbix retornou status de ERRO.
+                Verifique a mensagem do item Backup Zabbix - Mensagem para identificar o ponto de falha.
+              tags:
+                - tag: scope
+                  value: backup
+              manual_close: 'NO'
+
+        - uuid: 00262ac935d8435b8bd1b5234c214013
+          name: 'Backup Zabbix - Timestamp'
+          type: DEPENDENT
+          key: backup.status.timestamp
+          delay: '0'
+          history: 30d
+          trends: '0'
+          value_type: TEXT
+          description: 'Data e hora do ultimo backup executado'
+          master_item:
+            key: backup.status
+          tags:
+            - tag: component
+              value: backup
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.timestamp'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+
+        - uuid: c214243500e34e3e8ad05339b64b1b65
+          name: 'Backup Zabbix - Timestamp Unix'
+          type: DEPENDENT
+          key: backup.status.timestamp.unix
+          delay: '0'
+          history: 30d
+          trends: '0'
+          value_type: FLOAT
+          description: 'Timestamp Unix do ultimo backup - usado para calcular tempo decorrido na trigger'
+          master_item:
+            key: backup.status
+          tags:
+            - tag: component
+              value: backup
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.timestamp'
+            - type: JAVASCRIPT
+              parameters:
+                - 'return Math.floor(new Date(value.replace(" ", "T")).getTime() / 1000);'
+          triggers:
+            - uuid: 1b5a82731ba7422c91b1ad2877db532a
+              expression: '(now() - last(/Template Backup Zabbix Status/backup.status.timestamp.unix)) > 93600'
+              name: 'Backup Zabbix nao executado ha mais de 26h em {HOST.NAME}'
+              event_name: 'Backup Zabbix nao executado ha mais de 26h em {HOST.NAME} - Ultimo: {?last(/Template Backup Zabbix Status/backup.status.timestamp)}'
+              priority: HIGH
+              description: |
+                O backup do Zabbix nao foi executado ha mais de 26 horas.
+                Cron configurado para rodar as 02:00 diariamente.
+                Verifique se o cron esta ativo e se o script esta sendo executado.
+              tags:
+                - tag: scope
+                  value: backup
+              manual_close: 'NO'
+
+        - uuid: d28be1af15604a538a8d8877f4626628
+          name: 'Backup Zabbix - Mensagem'
+          type: DEPENDENT
+          key: backup.status.message
+          delay: '0'
+          history: 30d
+          trends: '0'
+          value_type: TEXT
+          description: 'Mensagem detalhada do ultimo backup'
+          master_item:
+            key: backup.status
+          tags:
+            - tag: component
+              value: backup
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.message'
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
