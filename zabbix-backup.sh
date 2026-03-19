@@ -8,13 +8,20 @@
 # ========================================
 
 # Configurações do MySQL/MariaDB
-MYSQL_USER="zabbix"                                             # Usuário do banco
-MYSQL_PASS='SENHA_AQUI'                                         # Senha do banco
-MYSQL_DB="zabbix"                                               # Nome do banco
+MYSQL_USER="zabbix"                                          # Usuário do banco
+MYSQL_PASS='Vtc0nn3ct1539'                                   # Senha do banco
+MYSQL_DB="zabbix"                                            # Nome do banco
 
 # Configurações de Scripts Externos
-EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts/"         # Caminho para externalscripts
-ALERTSCRIPTS_PATH="/usr/lib/zabbix/alertscripts"                # Caminho para alertscripts
+EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts"       # Caminho para externalscripts
+ALERTSCRIPTS_PATH="/usr/lib/zabbix/alertscripts"             # Caminho para alertscripts
+
+# Arquivos de configuração para backup
+# Informe o caminho dos arquivos de configuração importantes
+# Deixe vazio ("") para desabilitar o backup de configuração
+ZABBIX_SERVER_CONF="/etc/zabbix/zabbix_server.conf"          # Arquivo de configuração do Zabbix Server
+EXTRA_CONFIG_FILES=""                                         # Outros arquivos separados por espaço
+                                                              # Ex: "/etc/zabbix/zabbix_agentd.conf /etc/hosts"
 
 # Configurações de Backup Local
 BACKUP_DIR="/opt/backup/zabbix"                              # Diretório local para backups
@@ -23,13 +30,13 @@ TRENDS_RETENTION_DAYS=15                                     # Backup apenas tre
 LOG_FILE="/var/log/backup_zabbix.log"
 
 # Configurações SFTP/FTP
-SFTP_ENABLED=true                                               # true para ativar, false para desativar
-SFTP_HOST="IP_AQUI"
-SFTP_PORT="PORTA_AQUI"
-SFTP_USER="USER_AQUI"
-SFTP_PASS="SENHA_AQUI"
+SFTP_ENABLED=true
+SFTP_HOST="10.10.228.9"
+SFTP_PORT="4721"
+SFTP_USER="bkpzbx"
+SFTP_PASS='M003|CE1BVq_h4f:'                                 # SENHA USUÁRIO FTP
 SFTP_DIR="/opt/bkp_zabbix"
-SFTP_RETENTION_DAYS=5                                           # Retenção no servidor remoto
+SFTP_RETENTION_DAYS=5                                        # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
 STATUS_FILE="/var/log/zabbix_backup_status.json"
@@ -42,6 +49,7 @@ DATE=$(date +%Y%m%d_%H%M%S)
 BACKUP_CONFIG="${BACKUP_DIR}/backup_config_${DATE}.sql"
 BACKUP_TRENDS="${BACKUP_DIR}/backup_trends_${DATE}.sql"
 BACKUP_SCRIPTS="${BACKUP_DIR}/backup_scripts_${DATE}.tar.gz"
+BACKUP_CONFIGS_TAR="${BACKUP_DIR}/backup_configs_${DATE}.tar.gz"
 
 mkdir -p ${BACKUP_DIR}
 
@@ -64,6 +72,7 @@ write_status() {
   "message": "${message}"
 }
 EOF
+
     chmod 644 "${STATUS_FILE}"
 }
 
@@ -156,7 +165,42 @@ else
     rm -f ${BACKUP_SCRIPTS}
 fi
 
-# Compactar dumps SQL
+# Backup dos arquivos de configuração (zabbix_server.conf + extras)
+log "Fazendo backup dos arquivos de configuração..."
+CONFIGS_TO_BACKUP=""
+
+if [ -n "${ZABBIX_SERVER_CONF}" ] && [ -f "${ZABBIX_SERVER_CONF}" ]; then
+    log "  ✓ zabbix_server.conf encontrado: ${ZABBIX_SERVER_CONF}"
+    CONFIGS_TO_BACKUP="${CONFIGS_TO_BACKUP} ${ZABBIX_SERVER_CONF}"
+elif [ -n "${ZABBIX_SERVER_CONF}" ]; then
+    log "  ⚠ zabbix_server.conf não encontrado em: ${ZABBIX_SERVER_CONF}"
+fi
+
+for EXTRA_FILE in ${EXTRA_CONFIG_FILES}; do
+    if [ -f "${EXTRA_FILE}" ]; then
+        log "  ✓ Arquivo extra encontrado: ${EXTRA_FILE}"
+        CONFIGS_TO_BACKUP="${CONFIGS_TO_BACKUP} ${EXTRA_FILE}"
+    else
+        log "  ⚠ Arquivo extra não encontrado: ${EXTRA_FILE}"
+    fi
+done
+
+if [ -n "${CONFIGS_TO_BACKUP}" ]; then
+    tar -czf ${BACKUP_CONFIGS_TAR} ${CONFIGS_TO_BACKUP} 2>> ${LOG_FILE}
+
+    if [ $? -eq 0 ]; then
+        CONFIGS_SIZE=$(du -h ${BACKUP_CONFIGS_TAR} | cut -f1)
+        log "  ✓ Backup de configurações concluído: ${CONFIGS_SIZE}"
+    else
+        log "  ✗ ERRO ao fazer backup dos arquivos de configuração!"
+        rm -f ${BACKUP_CONFIGS_TAR}
+    fi
+else
+    log "  ⚠ Nenhum arquivo de configuração encontrado para backup"
+    rm -f ${BACKUP_CONFIGS_TAR}
+fi
+
+# Compactar
 log "Compactando backups SQL..."
 gzip ${BACKUP_CONFIG}
 gzip ${BACKUP_TRENDS}
@@ -165,7 +209,7 @@ if [ $? -ne 0 ]; then
     die "Falha ao compactar arquivos SQL"
 fi
 
-# Combinar em arquivo único
+# Combinar
 log "Combinando arquivos..."
 BACKUP_FINAL="${BACKUP_DIR}/backup_${DATE}.tar.gz"
 
@@ -173,6 +217,7 @@ tar -czf ${BACKUP_FINAL} \
     -C ${BACKUP_DIR} backup_config_${DATE}.sql.gz \
     -C ${BACKUP_DIR} backup_trends_${DATE}.sql.gz \
     $([ -f ${BACKUP_SCRIPTS} ] && echo "-C ${BACKUP_DIR} backup_scripts_${DATE}.tar.gz") \
+    $([ -f ${BACKUP_CONFIGS_TAR} ] && echo "-C ${BACKUP_DIR} backup_configs_${DATE}.tar.gz") \
     2>> ${LOG_FILE}
 
 if [ $? -ne 0 ]; then
@@ -180,7 +225,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Limpar arquivos temporários
-rm -f ${BACKUP_CONFIG}.gz ${BACKUP_TRENDS}.gz ${BACKUP_SCRIPTS}
+rm -f ${BACKUP_CONFIG}.gz ${BACKUP_TRENDS}.gz ${BACKUP_SCRIPTS} ${BACKUP_CONFIGS_TAR}
 
 SIZE=$(du -h ${BACKUP_FINAL} | cut -f1)
 log "Tamanho do backup final: ${SIZE}"
