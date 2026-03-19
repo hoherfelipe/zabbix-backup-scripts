@@ -14,8 +14,10 @@ Ambos os scripts implementam estratégias otimizadas de backup, focando em:
 - Retenção apenas de dados de tendências (trends) dos últimos 15 dias
 - Exclusão de tabelas de histórico (history) que consomem grande espaço
 - Backup de scripts externos (externalscripts e alertscripts)
+- **Backup dos arquivos de configuração** (docker-compose.yml ou zabbix_server.conf)
 - Upload automático para servidor SFTP/FTP
 - Gerenciamento de retenção de backups (local e remoto)
+- **Monitoramento de status via Zabbix Agent** (arquivo JSON + template)
 
 ## 🎯 Por que usar estes scripts?
 
@@ -27,9 +29,37 @@ Estes scripts implementam backup seletivo:
 - **Configurações**: Todas as tabelas de configuração (hosts, templates, triggers, items, mapas, dashboards, usuários, etc.)
 - **Trends**: Apenas dados agregados de 1 hora dos últimos 15 dias (suficiente para análises e gráficos)
 - **Scripts**: Backup completo de externalscripts e alertscripts personalizados
+- **Arquivos de configuração**: docker-compose.yml (Docker) ou zabbix_server.conf (Local) — essenciais para restauração completa em caso de perda total da VM
 - **History**: Excluído do backup (dados brutos de histórico não são preservados)
 
 Esta abordagem reduz o tamanho do backup em até 95% e permite restaurações completas da configuração em minutos.
+
+---
+
+## 📦 Estrutura do Backup
+
+Cada execução gera um arquivo `.tar.gz` contendo:
+```
+backup_YYYYMMDD_HHMMSS.tar.gz
+├── backup_config_YYYYMMDD_HHMMSS.sql.gz     # Configurações completas do banco
+├── backup_trends_YYYYMMDD_HHMMSS.sql.gz     # Trends dos últimos 15 dias
+├── backup_scripts_YYYYMMDD_HHMMSS.tar.gz    # Scripts externos (externalscripts + alertscripts)
+└── backup_configs_YYYYMMDD_HHMMSS.tar.gz    # Arquivos de configuração (compose/zabbix_server.conf)
+```
+
+### Tamanhos típicos
+
+| Componente | Tamanho Aproximado |
+|------------|-------------------|
+| Configurações SQL | 5–50 MB |
+| Trends (15 dias) | 10–100 MB |
+| Scripts | < 1 MB |
+| Arquivos de configuração | < 1 MB |
+| **Total** | **15–150 MB** |
+
+*Comparado a 50–500 GB de um backup completo com history*
+
+---
 
 ## 🐳 Zabbix Backup Docker
 
@@ -37,6 +67,7 @@ Esta abordagem reduz o tamanho do backup em até 95% e permite restaurações co
 - Execução de mysqldump através do `docker exec` no container MySQL/MariaDB
 - Suporte a ambientes Docker Compose e Docker standalone
 - Não requer acesso direto ao MySQL (funciona via container)
+- Backup automático do `docker-compose.yml` para preservar credenciais e configurações
 
 ### Pré-requisitos
 ```bash
@@ -63,6 +94,11 @@ MYSQL_DB="NOME_DO_BANCO"
 # Caminhos dos scripts (no host, não no container)
 EXTERNALSCRIPTS_PATH="/docker/zabbix/externalscripts"
 ALERTSCRIPTS_PATH="/docker/zabbix/alertscripts"
+
+# Arquivos de configuração para backup
+COMPOSE_FILE="/docker/fb-zabbix/docker-compose.yml"         # docker-compose.yml
+EXTRA_CONFIG_FILES=""                                        # Outros arquivos separados por espaço
+                                                             # Ex: "/etc/hosts /etc/timezone"
 
 # Backup local
 BACKUP_DIR="/opt/backup/zabbix"
@@ -92,12 +128,15 @@ crontab -e
 0 2 * * * /caminho/para/zabbix-backup-docker.sh >> /var/log/backup_zabbix_docker.log 2>&1
 ```
 
+---
+
 ## 💻 Zabbix Backup Local
 
 ### Características
 - Execução direta de mysqldump no servidor MySQL/MariaDB
 - Ideal para instalações tradicionais do Zabbix
 - Suporte a instalações via pacote (.deb, .rpm) ou compiladas
+- Backup automático do `zabbix_server.conf` para preservar credenciais e configurações
 
 ### Pré-requisitos
 ```bash
@@ -120,6 +159,11 @@ MYSQL_DB="NOME_DO_BANCO"
 # Caminhos padrão dos scripts (ajustar conforme instalação)
 EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts"
 ALERTSCRIPTS_PATH="/usr/lib/zabbix/alertscripts"
+
+# Arquivos de configuração para backup
+ZABBIX_SERVER_CONF="/etc/zabbix/zabbix_server.conf"         # Conf do Zabbix Server
+EXTRA_CONFIG_FILES=""                                        # Outros arquivos separados por espaço
+                                                             # Ex: "/etc/zabbix/zabbix_agentd.conf"
 
 # Backup local
 BACKUP_DIR="/opt/backup/zabbix"
@@ -159,26 +203,7 @@ crontab -e
 0 2 * * * /caminho/para/zabbix-backup-local.sh >> /var/log/backup_zabbix.log 2>&1
 ```
 
-## 📦 Estrutura do Backup
-
-Cada execução gera um arquivo `.tar.gz` contendo:
-```
-backup_YYYYMMDD_HHMMSS.tar.gz
-├── backup_config_YYYYMMDD_HHMMSS.sql.gz    # Configurações completas
-├── backup_trends_YYYYMMDD_HHMMSS.sql.gz    # Trends dos últimos 15 dias
-└── backup_scripts_YYYYMMDD_HHMMSS.tar.gz   # Scripts externos
-```
-
-### Tamanhos típicos
-
-| Componente | Tamanho Aproximado |
-|------------|-------------------|
-| Configurações | 5-50 MB |
-| Trends (15 dias) | 10-100 MB |
-| Scripts | < 1 MB |
-| **Total** | **15-150 MB** |
-
-*Comparado a 50-500 GB de um backup completo com history*
+---
 
 ## 📊 Comparação: Docker vs Local
 
@@ -188,67 +213,148 @@ backup_YYYYMMDD_HHMMSS.tar.gz
 | **Validação de Container** | ✅ Verifica se existe e está rodando | ❌ Não aplicável |
 | **Health Check MySQL** | ✅ Aguarda MySQL ficar pronto | ❌ Assume disponibilidade |
 | **`--no-tablespaces`** | ✅ Incluído | ✅ Incluído |
+| **Backup de configuração** | ✅ docker-compose.yml | ✅ zabbix_server.conf |
+| **Arquivos extras** | ✅ `EXTRA_CONFIG_FILES` | ✅ `EXTRA_CONFIG_FILES` |
 | **Dependências** | Docker + sshpass | mysql-client + sshpass |
 | **Ideal para** | Ambientes containerizados | VMs, bare metal, pacotes |
 
-## 🔍 Validação de Backup
+---
 
-### Método rápido
-```bash
-# Listar conteúdo
-tar -tzf backup_20260203_151033.tar.gz
+## 📡 Monitoramento via Zabbix
 
-# Extrair para validação
-mkdir /tmp/validar_backup
-tar -xzf backup_20260203_151033.tar.gz -C /tmp/validar_backup
+Os scripts integram-se ao Zabbix para monitoramento automático do status de backup. A solução é composta por três partes: o arquivo de status JSON gerado pelo script, a coleta via Zabbix Agent e o template com itens e triggers.
 
-# Verificar integridade dos SQL
-cd /tmp/validar_backup
-gzip -t backup_config_*.sql.gz && echo "[OK] Config"
-gzip -t backup_trends_*.sql.gz && echo "[OK] Trends"
+### 1. Arquivo de status
 
-# Ver tabelas no backup
-zcat backup_config_*.sql.gz | grep "CREATE TABLE" | cut -d'`' -f2
+O script grava `/var/log/zabbix_backup_status.json` ao final de cada execução (sucesso ou erro). Este arquivo é sempre sobrescrito com o resultado mais recente e tem permissão `644` para leitura pelo agente.
 
-# Verificar período das trends
-zcat backup_trends_*.sql.gz | grep -oP '\([0-9]{10},' | head -3 | while read ts; do
-    timestamp=$(echo $ts | tr -d '(,')
-    date -d @$timestamp '+%Y-%m-%d %H:%M:%S'
-done
-
-# Listar scripts
-tar -tzf backup_scripts_*.tar.gz
+```json
+{
+  "status": "OK",
+  "timestamp": "2026-03-19 02:00:01",
+  "message": "Backup concluído com sucesso"
+}
 ```
+
+Em caso de falha, o campo `status` passa para `"ERRO"` com a etapa específica:
+
+```json
+{
+  "status": "ERRO",
+  "timestamp": "2026-03-19 02:05:12",
+  "message": "Falha ao enviar backup para SFTP - 10.10.10.5"
+}
+```
+
+### Pontos de falha mapeados
+
+| Mensagem | Causa |
+|---|---|
+| `Container 'X' não encontrado` | Container Docker do MySQL não existe |
+| `Container 'X' não está rodando` | Container Docker parado |
+| `MySQL não ficou disponível após N tentativas` | MySQL não respondeu após reinicialização |
+| `Falha no mysqldump - backup de configurações` | Erro no dump das tabelas de configuração |
+| `Falha no mysqldump - backup de trends` | Erro no dump das tabelas de trends |
+| `Falha ao compactar arquivos SQL` | Erro no gzip dos dumps |
+| `Falha ao combinar arquivos no tar final` | Erro ao montar o tar.gz final |
+| `sshpass não está instalado - backup não enviado para SFTP` | sshpass ausente no servidor |
+| `Falha ao enviar backup para SFTP - <IP>` | Falha na transferência SFTP |
+| `Backup concluído com sucesso` | Tudo OK |
+
+### 2. Configuração do Zabbix Agent
+
+Crie o arquivo de UserParameter no servidor monitorado:
+
+```bash
+cat > /etc/zabbix/zabbix_agentd.d/backup_status.conf << 'EOF'
+UserParameter=backup.status,cat /var/log/zabbix_backup_status.json 2>/dev/null || echo '{"status":"ERRO","timestamp":"N/A","message":"Arquivo de status nao encontrado"}'
+EOF
+
+systemctl restart zabbix-agent
+```
+
+Verificar se está respondendo:
+```bash
+/usr/sbin/zabbix_agentd -t backup.status
+```
+
+### 3. Template Zabbix
+
+O arquivo `Template_Backup_Zabbix_Status.yaml` contém o template pronto para importação no Zabbix 7.2.
+
+#### Importação
+
+1. Acesse **Configuration → Templates → Import**
+2. Selecione o arquivo `Template_Backup_Zabbix_Status.yaml`
+3. Confirme a importação
+4. Vincule o template ao host monitorado em **Configuration → Hosts → [host] → Templates**
+
+#### Itens coletados
+
+| Item | Chave | Tipo | Descrição |
+|------|-------|------|-----------|
+| Backup Zabbix - Status JSON | `backup.status` | Zabbix Agent (Ativo) | JSON completo — item master |
+| Backup Zabbix - Status | `backup.status.result` | Dependente | `OK` ou `ERRO` |
+| Backup Zabbix - Timestamp | `backup.status.timestamp` | Dependente | Data/hora da última execução |
+| Backup Zabbix - Timestamp Unix | `backup.status.timestamp.unix` | Dependente | Timestamp Unix — base para cálculo de atraso |
+| Backup Zabbix - Mensagem | `backup.status.message` | Dependente | Mensagem detalhada do resultado |
+
+#### Triggers configuradas
+
+| Trigger | Severidade | Condição |
+|---------|-----------|----------|
+| Backup Zabbix com ERRO em `{HOST.NAME}` | Alta | `status != "OK"` |
+| Backup Zabbix não executado há mais de 26h em `{HOST.NAME}` | Alta | Tempo decorrido > 93600 segundos |
+
+---
 
 ## 🔄 Restauração
 
-### 1. Restaurar Configurações
+Para o processo completo de restauração, consulte o manual `Manual - Restore de Backup Zabbix.md`.
+
+### Restauração rápida — Zabbix Local
+
 ```bash
 # Extrair backup
-tar -xzf backup_20260203_151033.tar.gz
+tar -xzf backup_20260319_020001.tar.gz
 
-# Restaurar configurações
-zcat backup_config_20260203_151033.sql.gz | mysql -uzabbix -p zabbix
+# Recriar banco
+mysql -uroot -e "DROP DATABASE zabbix; CREATE DATABASE zabbix CHARACTER SET utf8mb4 COLLATE utf8mb4_bin; GRANT ALL PRIVILEGES ON zabbix.* TO 'zabbix'@'localhost'; FLUSH PRIVILEGES;"
 
-# Restaurar trends
-zcat backup_trends_20260203_151033.sql.gz | mysql -uzabbix -p zabbix
+# Importar configurações
+zcat backup_config_*.sql.gz | mysql --default-character-set=utf8mb4 -uroot zabbix
+
+# Importar trends
+zcat backup_trends_*.sql.gz | mysql --default-character-set=utf8mb4 -uzabbix -pzabbix zabbix
+
+# Restaurar arquivos de configuração
+tar -xzf backup_configs_*.tar.gz -C /
 ```
 
-### 2. Restaurar Scripts
+### Restauração rápida — Zabbix Docker
+
 ```bash
-# Extrair scripts do backup
-tar -xzf backup_scripts_20260203_151033.tar.gz
+# Extrair backup
+tar -xzf backup_20260319_020001.tar.gz
 
-# Restaurar para os locais originais
-cp -r externalscripts/* /usr/lib/zabbix/externalscripts/
-cp -r alertscripts/* /usr/lib/zabbix/alertscripts/
+# Recriar banco
+docker exec zabbix-mysql mysql -uroot -pROOT_PASS -e \
+  "DROP DATABASE zabbix; CREATE DATABASE zabbix CHARACTER SET utf8mb4 COLLATE utf8mb4_bin; GRANT ALL PRIVILEGES ON zabbix.* TO 'zabbix'@'%'; FLUSH PRIVILEGES;"
 
-# Ajustar permissões
-chown -R zabbix:zabbix /usr/lib/zabbix/externalscripts
-chown -R zabbix:zabbix /usr/lib/zabbix/alertscripts
-chmod +x /usr/lib/zabbix/externalscripts/*
-chmod +x /usr/lib/zabbix/alertscripts/*
+# Importar configurações (usar root para evitar erro de permissão SUPER)
+zcat backup_config_*.sql.gz | docker exec -i zabbix-mysql mysql --default-character-set=utf8mb4 -uroot -pROOT_PASS zabbix
+
+# Importar trends
+zcat backup_trends_*.sql.gz | docker exec -i zabbix-mysql mysql --default-character-set=utf8mb4 -uroot -pROOT_PASS zabbix
+
+# Restaurar arquivos de configuração
+tar -xzf backup_configs_*.tar.gz -C /
+
+# Reiniciar Zabbix Server
+docker restart zabbix-server
 ```
+
+---
 
 ## 📊 Logs
 
@@ -263,262 +369,77 @@ tail -f /var/log/backup_zabbix.log
 
 Exemplo de log:
 ```
-[2026-02-03 15:10:33] === Iniciando backup otimizado do Zabbix ===
-[2026-02-03 15:10:33] Fazendo backup de trends desde: 2026-01-19 15:10:33
-[2026-02-03 15:10:39] Backup de configurações concluído
-[2026-02-03 15:10:40] Backup de trends concluído
-[2026-02-03 15:10:40] [OK] ExternalScripts encontrado
-[2026-02-03 15:10:41] Tamanho do backup final: 6.8M
-[2026-02-03 15:10:41] [OK] Backup enviado com sucesso para SFTP
+[2026-03-19 02:00:01] === Iniciando backup otimizado do Zabbix ===
+[2026-03-19 02:00:01] Fazendo backup de trends desde: 2026-03-04 02:00:01
+[2026-03-19 02:00:07] Backup de configurações concluído
+[2026-03-19 02:00:09] Backup de trends concluído
+[2026-03-19 02:00:09]   ✓ ExternalScripts encontrado: /usr/lib/zabbix/externalscripts
+[2026-03-19 02:00:09]   ✓ Backup de scripts concluído: 12K
+[2026-03-19 02:00:09]   ✓ zabbix_server.conf encontrado: /etc/zabbix/zabbix_server.conf
+[2026-03-19 02:00:09]   ✓ Backup de configurações concluído: 4.0K
+[2026-03-19 02:00:10] Tamanho do backup final: 6.8M
+[2026-03-19 02:00:11] ✓ Backup enviado com sucesso para SFTP: 10.10.10.5
 ```
-
-### Arquivo de status JSON
-
-Além do log textual, cada execução atualiza o arquivo `/var/log/zabbix_backup_status.json` com o resultado mais recente:
-
-```json
-{
-  "status": "OK",
-  "timestamp": "2026-02-03 15:10:41",
-  "message": "Backup concluído com sucesso"
-}
-```
-
-Em caso de falha, o campo `status` passa para `"ERRO"` e `message` indica a etapa onde ocorreu:
-
-```json
-{
-  "status": "ERRO",
-  "timestamp": "2026-02-03 02:05:12",
-  "message": "Falha no mysqldump - backup de configurações"
-}
-```
-
-Este arquivo é o ponto de integração com o Zabbix Agent2 — veja a seção [Monitoramento via Zabbix](#-monitoramento-via-zabbix) abaixo.
 
 ---
 
-## 📡 Monitoramento via Zabbix
-
-Os scripts integram-se ao Zabbix para monitoramento automático do status de backup. A solução é composta por três partes: o arquivo de status JSON gerado pelo script, a coleta via Zabbix Agent2 e o template com itens e triggers.
-
-### 1. Arquivo de status
-
-O script grava `/var/log/zabbix_backup_status.json` ao final de cada execução (sucesso ou erro). Este arquivo é sempre sobrescrito com o resultado mais recente e tem permissão `644` para leitura pelo agente.
-
-### 2. Configuração do Zabbix Agent2
-
-Adicione o UserParameter ao arquivo de configuração do agente no servidor Zabbix monitorado:
-
-```bash
-# Editar o arquivo de configuração do agente
-vim /etc/zabbix/zabbix_agent2.d/backup_status.conf
-```
-
-Conteúdo do arquivo:
-```
-UserParameter=backup.status,cat /var/log/zabbix_backup_status.json
-```
-
-Reiniciar o agente após a alteração:
-```bash
-# Debian/Ubuntu
-systemctl restart zabbix-agent2
-
-# CentOS/RHEL
-systemctl restart zabbix-agent2
-```
-
-Verificar se o item está respondendo:
-```bash
-# Testar localmente
-zabbix_agent2 -t backup.status
-
-# Testar do servidor Zabbix
-zabbix_get -s <IP_DO_HOST> -p 10050 -k backup.status
-```
-
-### 3. Template Zabbix
-
-O arquivo `Template_Backup.yml` contém o template pronto para importação no Zabbix 7.2+.
-
-#### Importação
-
-1. Acesse **Configuration → Templates → Import**
-2. Selecione o arquivo `Template_Backup.yml`
-3. Confirme a importação
-4. Vincule o template ao host monitorado em **Configuration → Hosts → [host] → Templates**
-
-#### Itens coletados
-
-| Item | Chave | Tipo | Descrição |
-|------|-------|------|-----------|
-| Backup Zabbix - Status JSON | `backup.status` | Zabbix Agent (Ativo) | JSON completo — item master |
-| Backup Zabbix - Status | `backup.status.result` | Dependente | `OK` ou `ERRO` |
-| Backup Zabbix - Timestamp | `backup.status.timestamp` | Dependente | Data/hora da última execução |
-| Backup Zabbix - Timestamp Unix | `backup.status.timestamp.unix` | Dependente | Timestamp Unix — base para cálculo de atraso |
-| Backup Zabbix - Mensagem | `backup.status.message` | Dependente | Mensagem detalhada do resultado |
-
-Os itens dependentes extraem os campos do JSON via JSONPath. O `backup.status` é coletado a cada **5 minutos** e tem retenção de **7 dias**; os dependentes retêm dados por **30 dias**.
-
-#### Triggers configuradas
-
-| Trigger | Severidade | Condição |
-|---------|-----------|----------|
-| Backup Zabbix com ERRO em `{HOST.NAME}` | Alta | `status != "OK"` |
-| Backup Zabbix não executado há mais de 26h em `{HOST.NAME}` | Alta | Tempo decorrido desde o último backup > 93600 segundos |
-
-A trigger de atraso compara o timestamp Unix do último backup com o horário atual (`now()`), acionando alerta se o backup não tiver sido executado no intervalo esperado (cron às 02:00 com tolerância de 2 horas).
 ## 🔧 Troubleshooting
 
-### Problemas Comuns - Docker
-
-**Erro: "Container not found"**
+### Erro: `Access denied; you need SUPER or SET_USER_ID`
+O dump contém `DEFINER` em views ou procedures. Use root na importação:
 ```bash
-# Listar containers disponíveis
-docker ps -a
-
-# Verificar nome exato do container MySQL
-docker ps --format '{{.Names}}' | grep -i mysql
-
-# Ajustar variável DOCKER_CONTAINER no script
-vim zabbix-backup-docker.sh
-# Linha 10: DOCKER_CONTAINER="nome_correto_do_container"
+zcat backup_config_*.sql.gz | mysql --default-character-set=utf8mb4 -uroot zabbix
 ```
 
-**Erro: "Lost connection to MySQL server"**
-- Container MySQL acabou de reiniciar
-- Script aguarda automaticamente até 30 segundos
-- Se precisar mais tempo, ajuste `MAX_ATTEMPTS=15` para valor maior
-- Cada tentativa aguarda 2 segundos
+### Erro: `Table 'zabbix.auditlog' doesn't exist`
+O backup exclui `auditlog` e `history` por padrão. Ao restaurar em Zabbix local, o servidor tentará criar um índice nessa tabela. Crie a tabela vazia antes de iniciar o servidor — consulte o manual de restore para o script completo.
 
-**Erro: "Container is not running"**
+### Erro: `Container not found`
 ```bash
-# Verificar status do container
-docker ps -a | grep mysql
-
-# Iniciar container se estiver parado
-docker start nome_do_container
+docker ps -a --format '{{.Names}}'
+# Ajuste DOCKER_CONTAINER no script com o nome correto
 ```
 
----
-
-### Problemas Comuns - Ambos os Scripts
-
-**Erro: "Access denied... PROCESS privilege"**
-
-Solução 1 - Usar `--no-tablespaces` (já incluído nos scripts):
+### Erro: `Permission denied` no SFTP
 ```bash
-# Os scripts já incluem esta flag por padrão
-# Verifique se está presente nos comandos mysqldump
-grep "no-tablespaces" zabbix-backup*.sh
+# Senhas com caracteres especiais: SEMPRE use aspas simples
+SFTP_PASS='senha#especial@123'
 ```
 
-Solução 2 - Conceder permissão PROCESS:
+### Erro: `sshpass: command not found`
 ```bash
-mysql -u root -p
-GRANT PROCESS ON *.* TO 'zabbix'@'localhost';
-FLUSH PRIVILEGES;
+apt-get install -y sshpass          # Debian/Ubuntu
+yum install -y epel-release sshpass # CentOS/RHEL
 ```
 
-**Erro: "Permission denied" no SFTP**
+### Zabbix Server não inicia após restore (Docker)
 ```bash
-# 1. Verificar credenciais
-sftp -P [PORTA] usuario@servidor_ftp
-# Digite a senha quando solicitado
-
-# 2. Verificar se diretório existe no servidor FTP
-ssh -p [PORTA] usuario@servidor_ftp "ls -ld /opt/bkp_zabbix"
-
-# 3. Criar diretório se não existir
-ssh -p [PORTA] usuario@servidor_ftp "mkdir -p /opt/bkp_zabbix && chmod 755 /opt/bkp_zabbix"
-
-# 4. Senhas com caracteres especiais - usar aspas simples
-# ✅ CORRETO:   SFTP_PASS='M003|CE1BVq_h4f:'
-# ❌ INCORRETO: SFTP_PASS="M003|CE1BVq_h4f:"
-```
-
-**Erro: "sshpass: command not found"**
-```bash
-# Debian/Ubuntu
-apt-get update && apt-get install -y sshpass
-
-# CentOS/RHEL
-yum install -y epel-release
-yum install -y sshpass
-```
-
-**Backup muito grande ou muito demorado**
-```bash
-# Ajustar período de retenção dos trends (padrão: 15 dias)
-vim zabbix-backup*.sh
-# Linha ~22: TRENDS_RETENTION_DAYS=7  # Reduzir para 7 dias
-
-# Verificar tamanho das tabelas trends
-mysql -u zabbix -p zabbix -e "
-SELECT 
-    table_name,
-    ROUND(((data_length + index_length) / 1024 / 1024), 2) AS 'Tamanho_MB',
-    table_rows AS 'Linhas'
-FROM information_schema.TABLES
-WHERE table_schema = 'zabbix' 
-AND table_name LIKE 'trends%'
-ORDER BY (data_length + index_length) DESC;
-"
-```
-
-**Caracteres estranhos no log (encoding)**
-```bash
-# Verificar encoding do sistema
-locale
-
-# Instalar locale pt_BR se necessário
-apt-get install -y locales
-dpkg-reconfigure locales
-
-# Forçar UTF-8 no script
-export LANG=pt_BR.UTF-8
+docker logs zabbix-server --tail 30
+# Se houver erro de upgrade de schema, aguardar — o servidor aplica patches automaticamente
+# Se tabela auditlog não existir, consultar o manual de restore
 ```
 
 ---
-
-### Testando o Script
-
-**Teste básico antes de agendar no cron:**
-```bash
-# 1. Executar manualmente
-bash -x zabbix-backup.sh 2>&1 | tee /tmp/test_backup.log
-
-# 2. Verificar se gerou arquivo de backup
-ls -lh /opt/backup/zabbix/
-
-# 3. Validar integridade
-tar -tzf /opt/backup/zabbix/backup_*.tar.gz
-
-# 4. Verificar log
-tail -100 /var/log/backup_zabbix*.log
-
-# 5. Testar envio FTP (se habilitado)
-# Verificar se arquivo chegou no servidor remoto
-ssh -p [PORTA] usuario@servidor_ftp "ls -lh /opt/bkp_zabbix/"
-```
 
 ## ⚠️ Considerações Importantes
 
-### Permissões MySQL
-- Os scripts usam `--no-tablespaces` para evitar erro de permissão `PROCESS`
-- Esta flag é compatível com MySQL 5.7+ e MariaDB 10.2+
-- Se seu usuário MySQL tiver permissão `PROCESS`, esta flag continua funcionando normalmente
-- Recomendado manter `--no-tablespaces` para compatibilidade universal
+### Segurança dos arquivos de configuração
+- O `docker-compose.yml` e o `zabbix_server.conf` contêm **senhas em texto puro**
+- Os backups são enviados para o SFTP — garanta que o servidor SFTP tenha acesso restrito
+- Considere criptografar os backups se o ambiente exigir: `gpg --encrypt backup.tar.gz`
+- **NUNCA commite os scripts com senhas reais no Git** — use variáveis de ambiente ou arquivos externos
 
-### Caracteres Especiais em Senhas
-- **SEMPRE use aspas simples** para senhas com caracteres especiais: `PASS='senha#123'`
-- Aspas duplas podem causar interpretação incorreta de caracteres como `$`, `#`, `@`, `!`
-- Exemplos de caracteres que exigem aspas simples: `# $ @ ! ^ & * ( ) | \ ' " ;`
+### Caracteres especiais em senhas
+- **SEMPRE use aspas simples** para senhas com caracteres especiais:
+  ```bash
+  SFTP_PASS='M003|CE1BVq_h4f:'   # ✅ Correto
+  SFTP_PASS="M003|CE1BVq_h4f:"   # ❌ Pode falhar
+  ```
 
 ### O que NÃO está no backup
-- **Dados de histórico bruto** (tabelas `history*`): Estes dados consomem 90-95% do espaço do banco e não são essenciais para restauração de configuração
-- **Eventos antigos**: Apenas trends agregados de 15 dias são preservados
+- **Dados de histórico bruto** (tabelas `history*`): consomem 90–95% do espaço
+- **Tabela auditlog**: excluída por tamanho — recriada vazia no restore
+- **Eventos antigos**: apenas trends agregados de 15 dias são preservados
 
 ### Quando usar backup completo
 Para disaster recovery com preservação total de histórico, considere:
@@ -526,24 +447,7 @@ Para disaster recovery com preservação total de histórico, considere:
 - Replicação de banco de dados (MySQL replication)
 - Backup incremental do MySQL com binlogs
 
-### Segurança
-- **NUNCA commite senhas no Git**: Use variáveis de ambiente ou arquivos de configuração externos
-- Proteja os arquivos de backup com permissões adequadas: `chmod 600`
-- Criptografe backups sensíveis: `gpg --encrypt backup.tar.gz`
-
-## 🤝 Contribuindo
-
-Melhorias e sugestões são bem-vindas! Para contribuir:
-
-1. Fork este repositório
-2. Crie uma branch para sua feature (`git checkout -b feature/melhoria`)
-3. Commit suas mudanças (`git commit -m 'Adiciona melhoria X'`)
-4. Push para a branch (`git push origin feature/melhoria`)
-5. Abra um Pull Request
-
-## 📝 Licença
-
-MIT License - Sinta-se livre para usar e modificar conforme necessário.
+---
 
 ## 🔗 Recursos Adicionais
 
@@ -554,4 +458,5 @@ MIT License - Sinta-se livre para usar e modificar conforme necessário.
 ---
 
 **Desenvolvido por**: Felipe Hoher  
+**Empresa**: FB Consultoria  
 **Última atualização**: Março 2026
