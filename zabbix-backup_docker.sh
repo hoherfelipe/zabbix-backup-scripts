@@ -7,36 +7,35 @@
 # CONFIGURAÇÕES - AJUSTAR PARA CADA CLIENTE
 # ========================================
 
-# Configurações do MySQL/MariaDB
-MYSQL_USER="zabbix"                                          # Usuário do banco
-MYSQL_PASS='Vtc0nn3ct1539'                                   # Senha do banco
-MYSQL_DB="zabbix"                                            # Nome do banco
+# Configurações do Container Docker
+DOCKER_CONTAINER="NOME_CONTAINER_MYSQL"                             # Container MySQL
+ZABBIX_SERVER_CONTAINER="NOME_CONTAINER_SERVER"                     # Container Zabbix Server
+MYSQL_USER="USER_ZABBIX"                                            # Usuário do banco
+MYSQL_PASS="PASS_ZABBIX"                                            # Senha do banco
+MYSQL_DB="DB_ZABBIX"                                                # Nome do banco
 
 # Configurações de Scripts Externos
-EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts"       # Caminho para externalscripts
-ALERTSCRIPTS_PATH="/usr/lib/zabbix/alertscripts"             # Caminho para alertscripts
+EXTERNALSCRIPTS_PATH="/docker/zabbix-data/externalscripts"  # Caminho para externalscripts
+ALERTSCRIPTS_PATH="/docker/zabbix-data/alertscripts"        # Caminho para alertscripts
 
-# Arquivos de configuração para backup
-# Informe o caminho dos arquivos de configuração importantes
-# Deixe vazio ("") para desabilitar o backup de configuração
-ZABBIX_SERVER_CONF="/etc/zabbix/zabbix_server.conf"          # Arquivo de configuração do Zabbix Server
-EXTRA_CONFIG_FILES=""                                         # Outros arquivos separados por espaço
-                                                              # Ex: "/etc/zabbix/zabbix_agentd.conf /etc/hosts"
+# Arquivos de configuração extras para backup (separados por espaço)
+# Deixe vazio ("") para desabilitar
+EXTRA_CONFIG_FILES=""
 
 # Configurações de Backup Local
-BACKUP_DIR="/opt/backup/zabbix"                              # Diretório local para backups
-RETENTION_COUNT_LOCAL=2                                      # Manter apenas os 2 últimos backups locais
-TRENDS_RETENTION_DAYS=15                                     # Backup apenas trends dos últimos 15 dias
-LOG_FILE="/var/log/backup_zabbix.log"
+BACKUP_DIR="/opt/backup/zabbix"          # Diretório local para backups
+RETENTION_COUNT_LOCAL=2                  # Manter apenas os 2 últimos backups locais
+TRENDS_RETENTION_DAYS=15                 # Backup apenas trends dos últimos 15 dias
+LOG_FILE="/var/log/backup_zabbix_docker.log"
 
-# Configurações SFTP/FTP
-SFTP_ENABLED=true
-SFTP_HOST="10.10.228.9"
-SFTP_PORT="4721"
-SFTP_USER="bkpzbx"
-SFTP_PASS='M003|CE1BVq_h4f:'                                 # SENHA USUÁRIO FTP
+# Configurações SFTP/FTP (opcional - deixe SFTP_ENABLED=false para desabilitar)
+SFTP_ENABLED=true                        # true para ativar, false para desativar
+SFTP_HOST="IP_FTP"
+SFTP_PORT="PORT_FTP"
+SFTP_USER="USER_FTP"
+SFTP_PASS="PASS_FTP"
 SFTP_DIR="/opt/bkp_zabbix"
-SFTP_RETENTION_DAYS=5                                        # Retenção no servidor remoto
+SFTP_RETENTION_DAYS=5                    # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
 STATUS_FILE="/var/log/zabbix_backup_status.json"
@@ -50,6 +49,7 @@ BACKUP_CONFIG="${BACKUP_DIR}/backup_config_${DATE}.sql"
 BACKUP_TRENDS="${BACKUP_DIR}/backup_trends_${DATE}.sql"
 BACKUP_SCRIPTS="${BACKUP_DIR}/backup_scripts_${DATE}.tar.gz"
 BACKUP_CONFIGS_TAR="${BACKUP_DIR}/backup_configs_${DATE}.tar.gz"
+ZABBIX_CONF_EXTRACTED="${BACKUP_DIR}/zabbix_server_${DATE}.conf"
 
 mkdir -p ${BACKUP_DIR}
 
@@ -89,12 +89,13 @@ log "=== Iniciando backup otimizado do Zabbix Local ==="
 CUTOFF_TIMESTAMP=$(date -d "15 days ago" +%s)
 log "Fazendo backup de trends desde: $(date -d @${CUTOFF_TIMESTAMP} '+%Y-%m-%d %H:%M:%S')"
 
-# Backup de configurações
+# Backup de configurações MySQL
 log "Fazendo backup das configurações..."
-mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
+docker exec ${DOCKER_CONTAINER} mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
     --single-transaction \
     --quick \
     --lock-tables=false \
+    --no-tablespaces \
     --ignore-table=${MYSQL_DB}.history \
     --ignore-table=${MYSQL_DB}.history_uint \
     --ignore-table=${MYSQL_DB}.history_str \
@@ -112,14 +113,14 @@ fi
 log "Backup de configurações concluído"
 
 # Backup das trends
-log "Fazendo backup das trends (últimos 15 dias)..."
-mysql -u"${MYSQL_USER}" -p"${MYSQL_PASS}" "${MYSQL_DB}" -N -e \
+log "Fazendo backup das trends (últimos ${TRENDS_RETENTION_DAYS} dias)..."
+docker exec ${DOCKER_CONTAINER} mysql -u"${MYSQL_USER}" -p"${MYSQL_PASS}" "${MYSQL_DB}" -N -e \
     "SELECT 'trends' as table_name, COUNT(*) as records FROM trends WHERE clock >= ${CUTOFF_TIMESTAMP}
      UNION ALL
      SELECT 'trends_uint', COUNT(*) FROM trends_uint WHERE clock >= ${CUTOFF_TIMESTAMP};" \
     | tee -a ${LOG_FILE}
 
-mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
+docker exec ${DOCKER_CONTAINER} mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
     --single-transaction \
     --quick \
     --lock-tables=false \
@@ -165,17 +166,21 @@ else
     rm -f ${BACKUP_SCRIPTS}
 fi
 
-# Backup dos arquivos de configuração (zabbix_server.conf + extras)
+# Backup dos arquivos de configuração
 log "Fazendo backup dos arquivos de configuração..."
 CONFIGS_TO_BACKUP=""
 
-if [ -n "${ZABBIX_SERVER_CONF}" ] && [ -f "${ZABBIX_SERVER_CONF}" ]; then
-    log "  ✓ zabbix_server.conf encontrado: ${ZABBIX_SERVER_CONF}"
-    CONFIGS_TO_BACKUP="${CONFIGS_TO_BACKUP} ${ZABBIX_SERVER_CONF}"
-elif [ -n "${ZABBIX_SERVER_CONF}" ]; then
-    log "  ⚠ zabbix_server.conf não encontrado em: ${ZABBIX_SERVER_CONF}"
+# Extrair zabbix_server.conf do container Zabbix Server
+docker cp ${ZABBIX_SERVER_CONTAINER}:/etc/zabbix/zabbix_server.conf ${ZABBIX_CONF_EXTRACTED} 2>> ${LOG_FILE}
+
+if [ $? -eq 0 ]; then
+    log "  ✓ zabbix_server.conf extraído do container ${ZABBIX_SERVER_CONTAINER}"
+    CONFIGS_TO_BACKUP="${CONFIGS_TO_BACKUP} ${ZABBIX_CONF_EXTRACTED}"
+else
+    log "  ⚠ Não foi possível extrair zabbix_server.conf do container ${ZABBIX_SERVER_CONTAINER}"
 fi
 
+# Arquivos extras do host
 for EXTRA_FILE in ${EXTRA_CONFIG_FILES}; do
     if [ -f "${EXTRA_FILE}" ]; then
         log "  ✓ Arquivo extra encontrado: ${EXTRA_FILE}"
@@ -190,7 +195,7 @@ if [ -n "${CONFIGS_TO_BACKUP}" ]; then
 
     if [ $? -eq 0 ]; then
         CONFIGS_SIZE=$(du -h ${BACKUP_CONFIGS_TAR} | cut -f1)
-        log "  ✓ Backup de configurações concluído: ${CONFIGS_SIZE}"
+        log "  ✓ Backup de arquivos de configuração concluído: ${CONFIGS_SIZE}"
     else
         log "  ✗ ERRO ao fazer backup dos arquivos de configuração!"
         rm -f ${BACKUP_CONFIGS_TAR}
@@ -199,6 +204,9 @@ else
     log "  ⚠ Nenhum arquivo de configuração encontrado para backup"
     rm -f ${BACKUP_CONFIGS_TAR}
 fi
+
+# Limpar conf extraído temporariamente do container
+rm -f ${ZABBIX_CONF_EXTRACTED} 2>/dev/null
 
 # Compactar
 log "Compactando backups SQL..."

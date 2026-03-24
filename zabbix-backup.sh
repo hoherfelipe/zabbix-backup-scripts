@@ -8,9 +8,9 @@
 # ========================================
 
 # Configurações do MySQL/MariaDB
-MYSQL_USER="zabbix"                                          # Usuário do banco
-MYSQL_PASS='Vtc0nn3ct1539'                                   # Senha do banco
-MYSQL_DB="zabbix"                                            # Nome do banco
+MYSQL_USER="USER_ZABBIX"                                            # Usuário do banco
+MYSQL_PASS="PASS_ZABBIX"                                            # Senha do banco
+MYSQL_DB="DB_ZABBIX"                                                # Nome do banco
 
 # Configurações de Scripts Externos
 EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts"       # Caminho para externalscripts
@@ -30,13 +30,13 @@ TRENDS_RETENTION_DAYS=15                                     # Backup apenas tre
 LOG_FILE="/var/log/backup_zabbix.log"
 
 # Configurações SFTP/FTP
-SFTP_ENABLED=true
-SFTP_HOST="10.10.228.9"
-SFTP_PORT="4721"
-SFTP_USER="bkpzbx"
-SFTP_PASS='M003|CE1BVq_h4f:'                                 # SENHA USUÁRIO FTP
+SFTP_ENABLED=true                        # true para ativar, false para desativar
+SFTP_HOST="IP_FTP"
+SFTP_PORT="PORT_FTP"
+SFTP_USER="USER_FTP"
+SFTP_PASS="PASS_FTP"
 SFTP_DIR="/opt/bkp_zabbix"
-SFTP_RETENTION_DAYS=5                                        # Retenção no servidor remoto
+SFTP_RETENTION_DAYS=5                    # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
 STATUS_FILE="/var/log/zabbix_backup_status.json"
@@ -95,6 +95,7 @@ mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
     --single-transaction \
     --quick \
     --lock-tables=false \
+    --no-tablespaces \
     --ignore-table=${MYSQL_DB}.history \
     --ignore-table=${MYSQL_DB}.history_uint \
     --ignore-table=${MYSQL_DB}.history_str \
@@ -112,7 +113,7 @@ fi
 log "Backup de configurações concluído"
 
 # Backup das trends
-log "Fazendo backup das trends (últimos 15 dias)..."
+log "Fazendo backup das trends (últimos ${TRENDS_RETENTION_DAYS} dias)..."
 mysql -u"${MYSQL_USER}" -p"${MYSQL_PASS}" "${MYSQL_DB}" -N -e \
     "SELECT 'trends' as table_name, COUNT(*) as records FROM trends WHERE clock >= ${CUTOFF_TIMESTAMP}
      UNION ALL
@@ -190,7 +191,7 @@ if [ -n "${CONFIGS_TO_BACKUP}" ]; then
 
     if [ $? -eq 0 ]; then
         CONFIGS_SIZE=$(du -h ${BACKUP_CONFIGS_TAR} | cut -f1)
-        log "  ✓ Backup de configurações concluído: ${CONFIGS_SIZE}"
+        log "  ✓ Backup de arquivos de configuração concluído: ${CONFIGS_SIZE}"
     else
         log "  ✗ ERRO ao fazer backup dos arquivos de configuração!"
         rm -f ${BACKUP_CONFIGS_TAR}
