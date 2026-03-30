@@ -8,11 +8,11 @@
 # ========================================
 
 # Configurações do Container Docker
-DOCKER_CONTAINER="NOME_CONTAINER_MYSQL"                             # Container MySQL
-ZABBIX_SERVER_CONTAINER="NOME_CONTAINER_SERVER"                     # Container Zabbix Server
-MYSQL_USER="USER_ZABBIX"                                            # Usuário do banco
-MYSQL_PASS="PASS_ZABBIX"                                            # Senha do banco
-MYSQL_DB="DB_ZABBIX"                                                # Nome do banco
+DOCKER_CONTAINER="NOME_DO_CONTAINER_MYSQL"                             # Container MySQL
+ZABBIX_SERVER_CONTAINER="NOME_DO_CONTAINER_SERVER"                     # Container Zabbix Server
+MYSQL_USER="USER"                                                  # Usuário do banco
+MYSQL_PASS="SENHA"                                                 # Senha do banco
+MYSQL_DB="NAME"                                                    # Nome do banco
 
 # Configurações de Scripts Externos
 EXTERNALSCRIPTS_PATH="/docker/zabbix-data/externalscripts"  # Caminho para externalscripts
@@ -25,17 +25,17 @@ EXTRA_CONFIG_FILES=""
 # Configurações de Backup Local
 BACKUP_DIR="/opt/backup/zabbix"          # Diretório local para backups
 RETENTION_COUNT_LOCAL=2                  # Manter apenas os 2 últimos backups locais
-TRENDS_RETENTION_DAYS=15                 # Backup apenas trends dos últimos 15 dias
+TRENDS_RETENTION_DAYS=7                  # Backup apenas trends dos últimos X dias
 LOG_FILE="/var/log/backup_zabbix_docker.log"
 
 # Configurações SFTP/FTP (opcional - deixe SFTP_ENABLED=false para desabilitar)
-SFTP_ENABLED=true                        # true para ativar, false para desativar
-SFTP_HOST="IP_FTP"
-SFTP_PORT="PORT_FTP"
-SFTP_USER="USER_FTP"
-SFTP_PASS="PASS_FTP"
-SFTP_DIR="/opt/bkp_zabbix"
-SFTP_RETENTION_DAYS=5                    # Retenção no servidor remoto
+SFTP_ENABLED=true                                           # true para ativar, false para desativar
+SFTP_HOST="FTP_IP"
+SFTP_PORT="FTP_PORT"
+SFTP_USER="FTP_USER"
+SFTP_PASS="FTP_PASSWORD"
+SFTP_DIR="/opt/bkp_zabbix/"
+SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
 STATUS_FILE="/var/log/zabbix_backup_status.json"

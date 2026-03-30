@@ -8,9 +8,9 @@
 # ========================================
 
 # Configurações do MySQL/MariaDB
-MYSQL_USER="USER_ZABBIX"                                            # Usuário do banco
-MYSQL_PASS="PASS_ZABBIX"                                            # Senha do banco
-MYSQL_DB="DB_ZABBIX"                                                # Nome do banco
+MYSQL_USER="USER"                                                  # Usuário do banco
+MYSQL_PASS="SENHA"                                                 # Senha do banco
+MYSQL_DB="NAME"                                                    # Nome do banco
 
 # Configurações de Scripts Externos
 EXTERNALSCRIPTS_PATH="/usr/lib/zabbix/externalscripts"       # Caminho para externalscripts
@@ -30,16 +30,16 @@ TRENDS_RETENTION_DAYS=15                                     # Backup apenas tre
 LOG_FILE="/var/log/backup_zabbix.log"
 
 # Configurações SFTP/FTP
-SFTP_ENABLED=true                        # true para ativar, false para desativar
-SFTP_HOST="IP_FTP"
-SFTP_PORT="PORT_FTP"
-SFTP_USER="USER_FTP"
-SFTP_PASS="PASS_FTP"
-SFTP_DIR="/opt/bkp_zabbix"
-SFTP_RETENTION_DAYS=5                    # Retenção no servidor remoto
+SFTP_ENABLED=true                                           # true para ativar, false para desativar
+SFTP_HOST="FTP_IP"
+SFTP_PORT="FTP_PORT"
+SFTP_USER="FTP_USER"
+SFTP_PASS="FTP_PASSWORD"
+SFTP_DIR="/opt/bkp_zabbix/"
+SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
-STATUS_FILE="/var/log/zabbix_backup_status.json"
+STATUS_FILE="/opt/backup/zabbix/backup_status.json"
 
 # ========================================
 # NÃO ALTERAR DAQUI PRA BAIXO
