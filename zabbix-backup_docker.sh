@@ -38,7 +38,7 @@ SFTP_DIR="/opt/bkp_zabbix/"
 SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
-STATUS_FILE="/var/log/zabbix_backup_status.json"
+STATUS_FILE="/opt/backup/zabbix/backup_status.json"
 
 # ========================================
 # NÃO ALTERAR DAQUI PRA BAIXO
