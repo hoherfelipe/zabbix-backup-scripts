@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Backup Diário Otimizado Zabbix Local (sem history, trends 15 dias + scripts)
+# Backup Diário Otimizado Zabbix Local (sem history, trends 7 dias + scripts)
 #
 
 # ========================================
@@ -10,13 +10,13 @@
 # Configurações do Container Docker
 DOCKER_CONTAINER="NOME_DO_CONTAINER_MYSQL"                             # Container MySQL
 ZABBIX_SERVER_CONTAINER="NOME_DO_CONTAINER_SERVER"                     # Container Zabbix Server
-MYSQL_USER="USER"                                                  # Usuário do banco
-MYSQL_PASS="SENHA"                                                 # Senha do banco
-MYSQL_DB="NAME"                                                    # Nome do banco
+MYSQL_USER="USER"                                                       # Usuário do banco
+MYSQL_PASS="SENHA"                                                      # Senha do banco
+MYSQL_DB="NAME"                                                         # Nome do banco
 
 # Configurações de Scripts Externos
-EXTERNALSCRIPTS_PATH="/docker/zabbix-data/externalscripts"  # Caminho para externalscripts
-ALERTSCRIPTS_PATH="/docker/zabbix-data/alertscripts"        # Caminho para alertscripts
+EXTERNALSCRIPTS_PATH="/docker/zabbix-data/externalscripts"             # Caminho para externalscripts
+ALERTSCRIPTS_PATH="/docker/zabbix-data/alertscripts"                   # Caminho para alertscripts
 
 # Arquivos de configuração extras para backup (separados por espaço)
 # Deixe vazio ("") para desabilitar
@@ -29,13 +29,13 @@ TRENDS_RETENTION_DAYS=7                  # Backup apenas trends dos últimos X d
 LOG_FILE="/var/log/backup_zabbix_docker.log"
 
 # Configurações SFTP/FTP (opcional - deixe SFTP_ENABLED=false para desabilitar)
-SFTP_ENABLED=true                                           # true para ativar, false para desativar
+SFTP_ENABLED=true                                                       # true para ativar, false para desativar
 SFTP_HOST="FTP_IP"
 SFTP_PORT="FTP_PORT"
 SFTP_USER="FTP_USER"
 SFTP_PASS="FTP_PASSWORD"
 SFTP_DIR="/opt/bkp_zabbix/"
-SFTP_RETENTION_DAYS=5                                       # Retenção no servidor remoto
+SFTP_RETENTION_DAYS=5                                                   # Retenção no servidor remoto
 
 # Arquivo de status para monitoramento Zabbix
 STATUS_FILE="/opt/backup/zabbix/backup_status.json"
@@ -46,7 +46,7 @@ STATUS_FILE="/opt/backup/zabbix/backup_status.json"
 
 DATE=$(date +%Y%m%d_%H%M%S)
 BACKUP_CONFIG="${BACKUP_DIR}/backup_config_${DATE}.sql"
-BACKUP_TRENDS="${BACKUP_DIR}/backup_trends_${DATE}.sql"
+BACKUP_TRENDS="${BACKUP_DIR}/backup_trends_${DATE}.sql.gz"   # Compressão em pipe — já sai como .gz
 BACKUP_SCRIPTS="${BACKUP_DIR}/backup_scripts_${DATE}.tar.gz"
 BACKUP_CONFIGS_TAR="${BACKUP_DIR}/backup_configs_${DATE}.tar.gz"
 ZABBIX_CONF_EXTRACTED="${BACKUP_DIR}/zabbix_server_${DATE}.conf"
@@ -86,7 +86,8 @@ die() {
 
 log "=== Iniciando backup otimizado do Zabbix Local ==="
 
-CUTOFF_TIMESTAMP=$(date -d "15 days ago" +%s)
+# Usa TRENDS_RETENTION_DAYS para calcular o cutoff (não hardcoded)
+CUTOFF_TIMESTAMP=$(date -d "${TRENDS_RETENTION_DAYS} days ago" +%s)
 log "Fazendo backup de trends desde: $(date -d @${CUTOFF_TIMESTAMP} '+%Y-%m-%d %H:%M:%S')"
 
 # Backup de configurações MySQL
@@ -120,15 +121,19 @@ docker exec ${DOCKER_CONTAINER} mysql -u"${MYSQL_USER}" -p"${MYSQL_PASS}" "${MYS
      SELECT 'trends_uint', COUNT(*) FROM trends_uint WHERE clock >= ${CUTOFF_TIMESTAMP};" \
     | tee -a ${LOG_FILE}
 
+# Compressão em pipe: não grava .sql em disco, já sai direto como .gz
+# Reduz tempo de escrita e espaço consumido em disco
 docker exec ${DOCKER_CONTAINER} mysqldump -u"${MYSQL_USER}" -p"${MYSQL_PASS}" \
     --single-transaction \
     --quick \
     --lock-tables=false \
     --no-tablespaces \
+    --net-buffer-length=1M \
     ${MYSQL_DB} trends trends_uint \
-    --where="clock >= ${CUTOFF_TIMESTAMP}" > ${BACKUP_TRENDS} 2>> ${LOG_FILE}
+    --where="clock >= ${CUTOFF_TIMESTAMP}" 2>> ${LOG_FILE} | gzip -1 > ${BACKUP_TRENDS}
 
-if [ $? -ne 0 ]; then
+# PIPESTATUS[0] captura o exit code do mysqldump, não do gzip
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
     die "Falha no mysqldump - backup de trends"
 fi
 
@@ -208,13 +213,12 @@ fi
 # Limpar conf extraído temporariamente do container
 rm -f ${ZABBIX_CONF_EXTRACTED} 2>/dev/null
 
-# Compactar
-log "Compactando backups SQL..."
+# Compactar config (trends já está comprimido via pipe)
+log "Compactando backup de configurações..."
 gzip ${BACKUP_CONFIG}
-gzip ${BACKUP_TRENDS}
 
 if [ $? -ne 0 ]; then
-    die "Falha ao compactar arquivos SQL"
+    die "Falha ao compactar arquivo de configurações"
 fi
 
 # Combinar
@@ -233,7 +237,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Limpar arquivos temporários
-rm -f ${BACKUP_CONFIG}.gz ${BACKUP_TRENDS}.gz ${BACKUP_SCRIPTS} ${BACKUP_CONFIGS_TAR}
+rm -f ${BACKUP_CONFIG}.gz ${BACKUP_TRENDS} ${BACKUP_SCRIPTS} ${BACKUP_CONFIGS_TAR}
 
 SIZE=$(du -h ${BACKUP_FINAL} | cut -f1)
 log "Tamanho do backup final: ${SIZE}"
